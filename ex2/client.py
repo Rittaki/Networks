@@ -28,7 +28,7 @@ class Watcher:
         except KeyboardInterrupt:
             self.observer.stop()
         self.observer.join()
-        self.client.stop()
+        self.client.close()
 
 class EventHandler(FileSystemEventHandler):
     def __init__(self, path, client):
@@ -61,8 +61,29 @@ class EventHandler(FileSystemEventHandler):
     def on_deleted(self, event):
         pass
 
-def create_new_client():
-    pass
+def send_new_user_files(directory, client):
+    for path, folders, files in os.walk(directory):
+        try:
+            path_to_send = path.split("/", 1)[1]
+        except:
+            path_to_send = ""
+        for file in files:
+            # pass
+            print("path_to_send: " + path_to_send)
+            print("file name: " + file)
+            # s.send("file,".encode('utf-8') + (path_to_send + "/" + file).encode('utf-8'))
+            s.send("file,".encode('utf-8') + os.path.join(path_to_send, file).encode('utf-8'))
+            s.recv(1024)
+            # change "end of file" to while(data) in server.py
+            s.send("end of file".encode('utf-8'))
+            s.recv(1024)
+        for folder in folders:
+            print("folder: " + folder)
+            # s.send("folder,".encode('utf-8') + (path + "/" + folder).encode('utf-8'))
+            s.send("folder,".encode('utf-8') + os.path.join(path_to_send, folder).encode('utf-8'))
+            s.recv(1024)
+
+    s.send("finish".encode('utf-8'))
 
 if __name__ == '__main__':
     # creating new socket
@@ -72,14 +93,10 @@ if __name__ == '__main__':
         IDENTIFY = sys.argv[5]
     except:
         s.send("new user,".encode('utf-8') + DIR_PATH.encode('utf-8'))
+        IDENTIFY = s.recv(129).decode('utf-8')
+        print("id is: " + str(IDENTIFY))
+        send_new_user_files(DIR_PATH, s)
+
     watch = Watcher(DIR_PATH, s)
     watch.run()
 
-# s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# s.connect((SERVER_IP, SERVER_PORT))
-# s.send(b'hello')
-#
-# data = s.recv(100)
-# print("Server sent: ", data)
-#
-# s.close()
