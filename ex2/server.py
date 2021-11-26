@@ -19,13 +19,29 @@ def create_id():
     return ''.join(random.choices(string.ascii_lowercase + string.ascii_uppercase + string.digits, k=128))
 
 def create_file(id_num, path):
-    current_path = os.path.join(clients.get(id_num), path)
+    file_path = os.path.join(os.getcwd(), path)
+    print("FILE PATH IS: ", file_path)
+    open_file = open(file_path, 'rb')
+    content = open_file.read(1024)
+    try:
+        relative_path = path.split("/", 1)[1]
+    except:
+        relative_path = ""
+
+    current_path = os.path.join(clients.get(id_num), relative_path)
     print("current_path is: " + current_path)
-    file = open(current_path, "w")
+    file = open(current_path, 'wb')
+    while content:
+        file.write(content)
+        content = open_file.read(1024)
     file.close()
 
 def create_folder(id_num, path):
-    current_path = os.path.join(clients.get(id_num), path)
+    try:
+        relative_path = path.split("/", 1)[1]
+    except:
+        relative_path = ""
+    current_path = os.path.join(clients.get(id_num), relative_path)
     print("current_path is: ", current_path)
     os.makedirs(current_path, exist_ok=True)
 
@@ -67,12 +83,16 @@ def get_data(s):
         create_new_user_folder(id_num)
         get_files_new(s, id_num)
         s.close()
+    if string == "old user":
+        id_num = data.split(",", 1)[1]
+        print("old user is: " + str(id_num))
+
     print(string)
 
 if __name__ == "__main__":
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(('', CLIENT_PORT))
-    server.listen(5)
+    server.listen()
     while True:
         client_socket, client_address = server.accept()
         print('Connection from: ', client_address)

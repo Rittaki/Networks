@@ -63,27 +63,56 @@ class EventHandler(FileSystemEventHandler):
 
 def send_new_user_files(directory, client):
     for path, folders, files in os.walk(directory):
-        try:
-            path_to_send = path.split("/", 1)[1]
-        except:
-            path_to_send = ""
         for file in files:
-            # pass
-            print("path_to_send: " + path_to_send)
+            pass
+            print("path_to_send: " + path)
             print("file name: " + file)
-            # s.send("file,".encode('utf-8') + (path_to_send + "/" + file).encode('utf-8'))
-            s.send("file,".encode('utf-8') + os.path.join(path_to_send, file).encode('utf-8'))
-            s.recv(1024)
+            client.send("file,".encode('utf-8') + os.path.join(path, file).encode('utf-8'))
+            client.recv(1024)
             # change "end of file" to while(data) in server.py
-            s.send("end of file".encode('utf-8'))
-            s.recv(1024)
+            client.send("end of file".encode('utf-8'))
+            client.recv(1024)
         for folder in folders:
+            # pass
             print("folder: " + folder)
-            # s.send("folder,".encode('utf-8') + (path + "/" + folder).encode('utf-8'))
-            s.send("folder,".encode('utf-8') + os.path.join(path_to_send, folder).encode('utf-8'))
-            s.recv(1024)
+            client.send("folder,".encode('utf-8') + os.path.join(path, folder).encode('utf-8'))
+            client.recv(1024)
+    client.send("finish".encode('utf-8'))
 
-    s.send("finish".encode('utf-8'))
+def create_file(id_num, file, path, user_folder):
+    try:
+        relative_path = path.split(os.sep, 1)[1]
+    except:
+        relative_path = ""
+
+    file_path = os.path.join(os.getcwd(), id_num, relative_path)
+    open_file = open(os.path.join(file_path, file), 'rb')
+    content = open_file.read(1024)
+
+    current_path = os.path.join(user_folder, relative_path, file)
+    f = open(current_path, 'wb')
+    while content:
+        f.write(content)
+        content = open_file.read(1024)
+    f.close()
+
+def create_folder(folder, path, user_folder):
+    try:
+        relative_path = path.split(os.sep, 1)[1]
+    except:
+        relative_path = ""
+    new_dir = os.path.join(user_folder, relative_path, folder)
+    os.makedirs(new_dir, exist_ok=True)
+
+def pull_files(id_num, client):
+    # id_folder = os.path.join(os.getcwd(), id_num)
+    user_folder = os.path.join(os.getcwd(), DIR_PATH)
+    os.makedirs(user_folder, exist_ok=True)
+    for path, folders, files in os.walk(id_num):
+        for file in files:
+            create_file(id_num, file, path, user_folder)
+        for folder in folders:
+            create_folder(folder, path, user_folder)
 
 if __name__ == '__main__':
     # creating new socket
@@ -91,6 +120,8 @@ if __name__ == '__main__':
     s.connect((CLIENT_IP, PORT))
     try:
         IDENTIFY = sys.argv[5]
+        s.send("old user,".encode('utf-8') + IDENTIFY.encode('utf-8'))
+        pull_files(IDENTIFY, s)
     except:
         s.send("new user,".encode('utf-8') + DIR_PATH.encode('utf-8'))
         IDENTIFY = s.recv(129).decode('utf-8')
