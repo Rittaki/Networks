@@ -13,13 +13,14 @@ DIR_PATH = sys.argv[3]
 PERIOD = sys.argv[4]
 
 class Watcher:
-    def __init__(self, path, client):
+    def __init__(self, path, client, id_num):
         self.observer = Observer()
         self.path = path
         self.client = client
+        self.id_num = id_num
 
     def run(self):
-        event_handler = EventHandler(self.path, self.client)
+        event_handler = EventHandler(self.path, self.client, self.id_num)
         self.observer.schedule(event_handler, self.path, recursive=True)
         self.observer.start()
         try:
@@ -31,25 +32,34 @@ class Watcher:
         self.client.close()
 
 class EventHandler(FileSystemEventHandler):
-    def __init__(self, path, client):
+    def __init__(self, path, client, id_num):
         # self.observer = Observer()
         self.path = path
         self.client = client
+        self.id_num = id_num
 
     # on_any_event function - delete later
     def on_any_event(self, event):
-        if event.is_directory:
-            print("is directory")
+        # print((str(event.src_path).split(os.path.sep)))
         if event.event_type == 'created':
-            print("created")
+            print(f"{event.src_path} created")
+            if os.path.isdir(event.src_path):
+                self.client.send("NEW_FOLDER,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
+            else:
+                self.client.send("NEW_FILE,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
         if event.event_type == 'modified':
-            print("modified")
+            print(f"{event.src_path} modified")
+            if not os.path.isdir(event.src_path):
+                self.client.send("MODIFIED,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
         if event.event_type == 'moved':
-            print("moved")
+            if ((str(event.src_path).split(os.path.sep))[-1])[0] == '.':
+                print("GOT POINT")
         if event.event_type == 'deleted':
-            print("deleted")
+            print(f"{event.src_path} deleted")
+            self.client.send("DELETE,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
 
     def on_created(self, event):
+        # print(f"{event.src_path} created")
         pass
 
     def on_modified(self, event):
@@ -64,9 +74,8 @@ class EventHandler(FileSystemEventHandler):
 def send_new_user_files(directory, client):
     for path, folders, files in os.walk(directory):
         for file in files:
-            pass
-            print("path_to_send: " + path)
-            print("file name: " + file)
+            # pass
+            # print("file name: " + file)
             client.send("file,".encode('utf-8') + os.path.join(path, file).encode('utf-8'))
             client.recv(1024)
             # change "end of file" to while(data) in server.py
@@ -74,14 +83,14 @@ def send_new_user_files(directory, client):
             client.recv(1024)
         for folder in folders:
             # pass
-            print("folder: " + folder)
+            # print("folder: " + folder)
             client.send("folder,".encode('utf-8') + os.path.join(path, folder).encode('utf-8'))
             client.recv(1024)
     client.send("finish".encode('utf-8'))
 
 def create_file(id_num, file, path, user_folder):
     try:
-        relative_path = path.split(os.sep, 1)[1]
+        relative_path = path.split(os.path.sep, 1)[1]
     except:
         relative_path = ""
 
@@ -98,14 +107,13 @@ def create_file(id_num, file, path, user_folder):
 
 def create_folder(folder, path, user_folder):
     try:
-        relative_path = path.split(os.sep, 1)[1]
+        relative_path = path.split(os.path.sep, 1)[1]
     except:
         relative_path = ""
     new_dir = os.path.join(user_folder, relative_path, folder)
     os.makedirs(new_dir, exist_ok=True)
 
 def pull_files(id_num, client):
-    # id_folder = os.path.join(os.getcwd(), id_num)
     user_folder = os.path.join(os.getcwd(), DIR_PATH)
     os.makedirs(user_folder, exist_ok=True)
     for path, folders, files in os.walk(id_num):
@@ -120,14 +128,14 @@ if __name__ == '__main__':
     s.connect((CLIENT_IP, PORT))
     try:
         IDENTIFY = sys.argv[5]
-        s.send("old user,".encode('utf-8') + IDENTIFY.encode('utf-8'))
+        # s.send("old user,".encode('utf-8') + IDENTIFY.encode('utf-8'))
         pull_files(IDENTIFY, s)
     except:
         s.send("new user,".encode('utf-8') + DIR_PATH.encode('utf-8'))
         IDENTIFY = s.recv(129).decode('utf-8')
-        print("id is: " + str(IDENTIFY))
+        # print("id is: " + str(IDENTIFY))
         send_new_user_files(DIR_PATH, s)
 
-    watch = Watcher(DIR_PATH, s)
+    watch = Watcher(DIR_PATH, s, IDENTIFY)
     watch.run()
 

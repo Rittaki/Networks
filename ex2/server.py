@@ -20,35 +20,39 @@ def create_id():
 
 def create_file(id_num, path):
     file_path = os.path.join(os.getcwd(), path)
-    print("FILE PATH IS: ", file_path)
+    # print("FILE PATH IS: ", file_path)
     open_file = open(file_path, 'rb')
     content = open_file.read(1024)
     try:
-        relative_path = path.split("/", 1)[1]
+        relative_path = path.split(os.path.sep, 1)[1]
     except:
         relative_path = ""
-
-    current_path = os.path.join(clients.get(id_num), relative_path)
-    print("current_path is: " + current_path)
+    current_path = os.path.join(os.getcwd(), id_num, relative_path)
+    # current_path = os.path.join(clients.get(id_num), relative_path)
+    # print("current_path is: " + current_path)
     file = open(current_path, 'wb')
     while content:
         file.write(content)
         content = open_file.read(1024)
     file.close()
 
+# TO DO: create_item - recursive creation - send from client to server just a path of
+# user's folder and server is making recursive creation of folders and files (like in deleting)
+# (maybe split to calling for two functions: create_folder and create_file)
 def create_folder(id_num, path):
     try:
-        relative_path = path.split("/", 1)[1]
+        relative_path = path.split(os.path.sep, 1)[1]
     except:
         relative_path = ""
-    current_path = os.path.join(clients.get(id_num), relative_path)
-    print("current_path is: ", current_path)
+    current_path = os.path.join(os.getcwd(), id_num, relative_path)
+    # current_path = os.path.join(clients.get(id_num), relative_path)
+    # print("current_path is: ", current_path)
     os.makedirs(current_path, exist_ok=True)
 
 def get_files_new(client, id_num):
     # to do: while(data):
     data = client.recv(1024).decode('utf-8')
-    print("data is: " + data)
+    # print("data is: " + data)
     while data != "finish":
         string = data.split(",", 1)[0]
         if string == "folder":
@@ -60,34 +64,64 @@ def get_files_new(client, id_num):
             # pass
             path = data.split(",", 1)[1]
             client.send("next".encode('utf-8'))
-            print("path is: ", path)
+            # print("path is: ", path)
             create_file(id_num, path)
             data = client.recv(1024).decode('utf-8')
-            print(data)
+            # print(data)
             while data != "end of file":
                 data = client.recv(1024).decode('utf-8')
-                print(data)
+                # print(data)
             client.send("next".encode('utf-8'))
         data = client.recv(1024).decode('utf-8')
-        print(data)
+        # print(data)
+
+def delete_item(id_num, path):
+    try:
+        relative_path = path.split(os.path.sep, 1)[1]
+    except:
+        relative_path = ""
+    current_path = os.path.join(os.getcwd(), id_num, relative_path)
+    # current_path = os.path.join(clients.get(id_num), relative_path)
+    if os.path.exists(current_path):
+        if os.path.isdir(current_path):
+            for root, folders, files in os.walk(current_path, topdown=False):
+                for file in files:
+                    os.remove(os.path.join(root, file))
+                for folder in folders:
+                    os.rmdir(os.path.join(root, folder))
+            os.rmdir(current_path)
+        else:
+            os.remove(current_path)
 
 def get_data(s):
-    data = s.recv(1024)
-    data = data.decode('utf-8')
-    string = data.split(",")[0]
-    if string == "new user":
-        path = data.split(",")[1]
-        id_num = create_id()
-        print(id_num)
-        s.send(str.encode(id_num))
-        create_new_user_folder(id_num)
-        get_files_new(s, id_num)
-        s.close()
-    if string == "old user":
-        id_num = data.split(",", 1)[1]
-        print("old user is: " + str(id_num))
-
-    print(string)
+    while True:
+        data = s.recv(1024)
+        print(data)
+        data = data.decode('utf-8')
+        string = data.split(",")[0]
+        if string == "new user":
+            id_num = create_id()
+            # print(id_num)
+            s.send(str.encode(id_num))
+            create_new_user_folder(id_num)
+            get_files_new(s, id_num)
+        if string == "NEW_FOLDER":
+            print("got new folder")
+            path = data.split(",")[1]
+            create_folder(path.split(os.path.sep, 1)[0], path.split(os.path.sep, 1)[1])
+        if string == "NEW_FILE":
+            print("got new file")
+            path = data.split(",")[1]
+            create_file(path.split(os.path.sep, 1)[0], path.split(os.path.sep, 1)[1])
+        if string == "DELETE":
+            print("deleting file/folder...")
+            path = data.split(",")[1]
+            delete_item(path.split(os.path.sep, 1)[0], path.split(os.path.sep, 1)[1])
+        if string == "MODIFIED":
+            print("changing file...")
+            path = data.split(",")[1]
+            delete_item(path.split(os.path.sep, 1)[0], path.split(os.path.sep, 1)[1])
+            create_file(path.split(os.path.sep, 1)[0], path.split(os.path.sep, 1)[1])
 
 if __name__ == "__main__":
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -99,5 +133,5 @@ if __name__ == "__main__":
         get_data(client_socket)
         # data = client_socket.recv(100)
         # print('Received: ', data)
-        client_socket.close()
-        print('Client disconnected')
+    client_socket.close()
+    print('Client disconnected')
