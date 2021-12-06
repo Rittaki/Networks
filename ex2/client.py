@@ -3,7 +3,6 @@ import sys
 import time
 import os
 import random
-import string
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -13,81 +12,64 @@ DIR_PATH = sys.argv[3]
 PERIOD = sys.argv[4]
 
 class Watcher:
-    def __init__(self, path, client, id_num):
+    def __init__(self, path, client):
         self.observer = Observer()
         self.path = path
         self.client = client
-        self.id_num = id_num
 
     def run(self):
-        event_handler = EventHandler(self.path, self.client, self.id_num)
+        event_handler = EventHandler(self.path, self.client)
         self.observer.schedule(event_handler, self.path, recursive=True)
         self.observer.start()
         try:
             while True:
-                time.sleep(5)
+                if self.client.timer + int(PERIOD) < time.time():
+                    self.client.setup_connection()
+                    self.client.close_connection()
+                time.sleep(int(PERIOD))
         except KeyboardInterrupt:
             self.observer.stop()
         self.observer.join()
-        self.client.close()
 
 class EventHandler(FileSystemEventHandler):
-    def __init__(self, path, client, id_num):
-        # self.observer = Observer()
+    def __init__(self, path, client):
         self.path = path
         self.client = client
-        self.id_num = id_num
 
-    # on_any_event function - delete later
     def on_any_event(self, event):
-        # print((str(event.src_path).split(os.path.sep)))
+        time.sleep(0.5)
+
+        self.client.setup_connection()
+
         if event.event_type == 'created':
             print(f"{event.src_path} created")
             if os.path.isdir(event.src_path):
-                self.client.send("NEW_FOLDER,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
+                self.client.socket.sendall('NEW_FOLDER'.encode() + b'\n')
+                self.client.socket.sendall(event.src_path.encode() + b'\n')
             else:
-                self.client.send("NEW_FILE,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
-        if event.event_type == 'modified':
-            print(f"{event.src_path} modified")
-            if not os.path.isdir(event.src_path):
-                self.client.send("MODIFIED,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
-        if event.event_type == 'moved':
-            if ((str(event.src_path).split(os.path.sep))[-1])[0] == '.':
-                print("GOT POINT")
-        if event.event_type == 'deleted':
+                self.client.socket.sendall('NEW_FILE'.encode() + b'\n')
+                self.client.socket.sendall(event.src_path.encode() + b'\n')
+        elif event.event_type == 'deleted':
             print(f"{event.src_path} deleted")
-            self.client.send("DELETE,".encode('utf-8') + os.path.join(self.id_num, event.src_path).encode('utf-8'))
+            self.client.socket.sendall('DELETE'.encode() + b'\n')
+            self.client.socket.sendall(event.src_path.encode() + b'\n')
+        elif event.event_type == 'moved':
+            print(f"{event.src_path} moved")
+            self.client.socket.sendall('MOVED'.encode() + b'\n')
+            self.client.socket.sendall(event.src_path.encode() + b'\n')
+            self.client.socket.sendall(event.dest_path.encode() + b'\n')
+        elif event.event_type == 'modified':
+            print(f"{event.src_path} modified")
+            if os.path.isdir(event.src_path):
+                pass
+                # self.client.socket.sendall('MOD_FOLDER'.encode() + b'\n')
+                # self.client.socket.sendall(event.src_path.encode() + b'\n')
+            else:
+                self.client.socket.sendall('MOD_FILE'.encode() + b'\n')
+                self.client.socket.sendall(event.src_path.encode() + b'\n')
+        self.client.close_connection()
 
-    def on_created(self, event):
-        # print(f"{event.src_path} created")
-        pass
-
-    def on_modified(self, event):
-        pass
-
-    def on_moved(self, event):
-        pass
-
-    def on_deleted(self, event):
-        pass
-
-def send_new_user_files(directory, client):
-    for path, folders, files in os.walk(directory):
-        for file in files:
-            # pass
-            # print("file name: " + file)
-            client.send("file,".encode('utf-8') + os.path.join(path, file).encode('utf-8'))
-            client.recv(1024)
-            # change "end of file" to while(data) in server.py
-            client.send("end of file".encode('utf-8'))
-            client.recv(1024)
-        for folder in folders:
-            # pass
-            # print("folder: " + folder)
-            client.send("folder,".encode('utf-8') + os.path.join(path, folder).encode('utf-8'))
-            client.recv(1024)
-    client.send("finish".encode('utf-8'))
-
+# creates file on user's computer
 def create_file(id_num, file, path, user_folder):
     try:
         relative_path = path.split(os.path.sep, 1)[1]
@@ -105,6 +87,7 @@ def create_file(id_num, file, path, user_folder):
         content = open_file.read(1024)
     f.close()
 
+# creates folder on user's computer
 def create_folder(folder, path, user_folder):
     try:
         relative_path = path.split(os.path.sep, 1)[1]
@@ -113,7 +96,8 @@ def create_folder(folder, path, user_folder):
     new_dir = os.path.join(user_folder, relative_path, folder)
     os.makedirs(new_dir, exist_ok=True)
 
-def pull_files(id_num, client):
+# pull all the files from server when old client connects from new computer
+def pull_files(id_num):
     user_folder = os.path.join(os.getcwd(), DIR_PATH)
     os.makedirs(user_folder, exist_ok=True)
     for path, folders, files in os.walk(id_num):
@@ -122,20 +106,44 @@ def pull_files(id_num, client):
         for folder in folders:
             create_folder(folder, path, user_folder)
 
-if __name__ == '__main__':
-    # creating new socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((CLIENT_IP, PORT))
-    try:
-        IDENTIFY = sys.argv[5]
-        # s.send("old user,".encode('utf-8') + IDENTIFY.encode('utf-8'))
-        pull_files(IDENTIFY, s)
-    except:
-        s.send("new user,".encode('utf-8') + DIR_PATH.encode('utf-8'))
-        IDENTIFY = s.recv(129).decode('utf-8')
-        # print("id is: " + str(IDENTIFY))
-        send_new_user_files(DIR_PATH, s)
+class Client:
+    def __init__(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.file = self.socket.makefile('rb')
+        self.id_num = '0'
+        self.computer = '0'
+        self.timer = time.time()
 
-    watch = Watcher(DIR_PATH, s, IDENTIFY)
+    def run(self):
+        try:
+            self.id_num = str(sys.argv[5])
+            self.setup_connection()
+            self.socket.sendall('NEW_COMP'.encode() + b'\n')
+            self.computer = self.file.readline().strip().decode()
+            pull_files(self.id_num)
+        except:
+            self.setup_connection()
+            self.id_num = self.file.readline().strip().decode()
+            print("ID is: " + self.id_num)
+            self.computer = self.file.readline().strip().decode()
+            print("Computer ID is: " + self.computer)
+            self.socket.sendall(DIR_PATH.encode() + b'\n')
+        self.close_connection()
+        self.timer = time.time()
+
+    def setup_connection(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect((CLIENT_IP, PORT))
+        self.file = self.socket.makefile("rb")
+        self.socket.sendall(self.id_num.encode() + b'\n')
+        self.socket.sendall(self.computer.encode() + b'\n')
+
+    def close_connection(self):
+        self.socket.close()
+        self.file.close()
+
+if __name__ == "__main__":
+    c = Client()
+    c.run()
+    watch = Watcher(DIR_PATH, c)
     watch.run()
-
