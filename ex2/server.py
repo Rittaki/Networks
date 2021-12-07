@@ -90,32 +90,56 @@ def change_name(id_num, src, dest):
     dest_path = os.path.join(os.getcwd(), id_num, relative_dest)
     os.rename(src_path, dest_path)
 
+def send_list(identifier, comp_id):
+    updates = clients[(identifier, comp_id)]
+    client_socket.sendall(str(len(updates)).encode() + b'\n')
+    for update in updates:
+        client_socket.sendall(update[0].encode() + b'\n')
+        client_socket.sendall(update[1].encode() + b'\n')
+    updates.clear()
+
+def add_item_to_list(identifier, comp_id, command, path):
+    for comp in clients.keys():
+        if comp[0] == identifier and comp[1] != comp_id:
+            clients[(identifier, comp[1])].append((command, path))
+
 def get_updates(identifier, comp_id, command):
     # path = os.path.join(os.getcwd(), identifier)
     # print("Client's path is: " + path)
-    if command == 'NEW_FOLDER':
+    if command == 'SYNC':
+        send_list(identifier, comp_id)
+        return
+    elif command == 'NEW_FOLDER':
         print("Got new folder")
         path = client_file.readline().strip().decode()
         create_folder(identifier, path)
         create_items(identifier, path)
+        add_item_to_list(identifier, comp_id, command, path)
     elif command == 'NEW_FILE':
         print("Got new file")
         path = client_file.readline().strip().decode()
         create_file(identifier, path)
+        add_item_to_list(identifier, comp_id, command, path)
     elif command == 'DELETE':
         print("Deleting file/folder...")
         path = client_file.readline().strip().decode()
         delete_item(identifier, path)
+        add_item_to_list(identifier, comp_id, command, path)
     elif command == 'MOD_FILE':
         print("Changing file...")
         path = client_file.readline().strip().decode()
         delete_item(identifier, path)
+        add_item_to_list(identifier, comp_id, 'DELETE', path)
         create_file(identifier, path)
+        add_item_to_list(identifier, comp_id, 'NEW_FILE', path)
     elif command == 'MOVED':
         print("Changing name...")
         src = client_file.readline().strip().decode()
         dest = client_file.readline().strip().decode()
         change_name(identifier, src, dest)
+        path = src + ',' + dest
+        print(path)
+        add_item_to_list(identifier, comp_id, command, path)
 
 if __name__ == "__main__":
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

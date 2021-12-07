@@ -25,6 +25,7 @@ class Watcher:
             while True:
                 if self.client.timer + int(PERIOD) < time.time():
                     self.client.setup_connection()
+                    self.client.new_update()
                     self.client.close_connection()
                 time.sleep(int(PERIOD))
         except KeyboardInterrupt:
@@ -38,6 +39,10 @@ class EventHandler(FileSystemEventHandler):
 
     def on_any_event(self, event):
         time.sleep(0.5)
+        if any(str(event.src_path).startswith(s) for s in self.client.ignore_watch):
+            if event.src_path in self.client.ignore_watch:
+                self.client.ignore_watch.remove(event.src_path)
+            return
 
         self.client.setup_connection()
 
@@ -68,6 +73,36 @@ class EventHandler(FileSystemEventHandler):
                 self.client.socket.sendall('MOD_FILE'.encode() + b'\n')
                 self.client.socket.sendall(event.src_path.encode() + b'\n')
         self.client.close_connection()
+
+def change_name(user_folder, src, dest):
+    try:
+        relative_src = src.split(os.path.sep, 1)[1]
+    except:
+        relative_src = ""
+    src_path = os.path.join(os.getcwd(), user_folder, relative_src)
+    try:
+        relative_dest = dest.split(os.path.sep, 1)[1]
+    except:
+        relative_dest = ""
+    dest_path = os.path.join(os.getcwd(), user_folder, relative_dest)
+    os.rename(src_path, dest_path)
+
+def delete_item(path, user_folder):
+    try:
+        relative_path = path.split(os.path.sep, 1)[1]
+    except:
+        relative_path = ""
+    current_path = os.path.join(os.getcwd(), user_folder, relative_path)
+    if os.path.exists(current_path):
+        if os.path.isdir(current_path):
+            for root, folders, files in os.walk(current_path, topdown=False):
+                for file in files:
+                    os.remove(os.path.join(root, file))
+                for folder in folders:
+                    os.rmdir(os.path.join(root, folder))
+            os.rmdir(current_path)
+        else:
+            os.remove(current_path)
 
 # creates file on user's computer
 def create_file(id_num, file, path, user_folder):
@@ -113,6 +148,7 @@ class Client:
         self.id_num = '0'
         self.computer = '0'
         self.timer = time.time()
+        self.ignore_watch = list()
 
     def run(self):
         try:
@@ -141,6 +177,46 @@ class Client:
     def close_connection(self):
         self.socket.close()
         self.file.close()
+
+    def new_update(self):
+        self.socket.sendall('SYNC'.encode() + b'\n')
+        number = self.file.readline().strip().decode()
+        for update in range(int(number)):
+            command = self.file.readline().strip().decode()
+            if command == 'NEW_FILE':
+                paths = self.file.readline().strip().decode()
+                file_name = paths.split(os.path.sep)[-1]
+                path_no_file = os.path.split(paths)[0]
+                # path_no_file = os.path.dirname(os.path.abspath(file_name))
+                create_file(self.id_num, file_name, path_no_file, DIR_PATH)
+                path_no_dir = paths.split(os.path.sep, 1)[1]
+                self.ignore_watch.append(os.path.join(DIR_PATH, path_no_dir))
+            elif command == 'NEW_FOLDER':
+                path = self.file.readline().strip().decode()
+                folder_name = ''
+                # folder_name = path.split(os.path.sep)[-1]
+                # path_no_folder = os.path.dirname(folder_name)
+                create_folder(folder_name, path, DIR_PATH)
+                path_no_dir = path.split(os.path.sep, 1)[1]
+                self.ignore_watch.extend([os.path.join(DIR_PATH, path_no_dir)] * 2)
+            elif command == 'DELETE':
+                path = self.file.readline().strip().decode()
+                # item_name = path.split(os.path.sep)[-1]
+                delete_item(path, DIR_PATH)
+                path_no_dir = path.split(os.path.sep, 1)[1]
+                self.ignore_watch.extend([os.path.join(DIR_PATH, path_no_dir)] * 3)
+            elif command == 'MOVED':
+                path = self.file.readline().strip().decode()
+                src = path.split(',')[0]
+                # src_item = src.split(os.path.sep)[-1]
+                src_path_no_dir = src.split(os.path.sep, 1)[1]
+                dest = path.split(',')[1]
+                # dest_item = dest.split(os.path.sep)[-1]
+                dest_path_no_dir = dest.split(os.path.sep, 1)[1]
+                change_name(DIR_PATH, src, dest)
+                self.ignore_watch.append(os.path.join(DIR_PATH, src_path_no_dir))
+                self.ignore_watch.append(os.path.join(DIR_PATH, dest_path_no_dir))
+        self.timer = time.time()
 
 if __name__ == "__main__":
     c = Client()
