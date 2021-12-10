@@ -1,8 +1,6 @@
 import socket
 import sys
-import time
 import os
-import watchdog
 import random
 import string
 
@@ -19,11 +17,6 @@ def create_id():
 
 def create_comp_id():
     return ''.join(random.choices(string.digits, k=20))
-
-def client_exists(client):
-    if os.path.exists(os.path.join(os.getcwd(), client)):
-        return True
-    return False
 
 # create new file on server
 def create_file(id_num, path):
@@ -90,6 +83,7 @@ def change_name(id_num, src, dest):
     dest_path = os.path.join(os.getcwd(), id_num, relative_dest)
     os.rename(src_path, dest_path)
 
+# sends list of updates from other computers
 def send_list(identifier, comp_id):
     updates = clients[(identifier, comp_id)]
     client_socket.sendall(str(len(updates)).encode() + b'\n')
@@ -98,48 +92,52 @@ def send_list(identifier, comp_id):
         client_socket.sendall(update[1].encode() + b'\n')
     updates.clear()
 
-def add_item_to_list(identifier, comp_id, command, path):
+# adds updates to list
+def add_command_to_list(identifier, comp_id, command, path):
     for comp in clients.keys():
         if comp[0] == identifier and comp[1] != comp_id:
             clients[(identifier, comp[1])].append((command, path))
 
 def get_updates(identifier, comp_id, command):
-    # path = os.path.join(os.getcwd(), identifier)
-    # print("Client's path is: " + path)
-    if command == 'SYNC':
-        send_list(identifier, comp_id)
-        return
-    elif command == 'NEW_FOLDER':
-        print("Got new folder")
-        path = client_file.readline().strip().decode()
-        create_folder(identifier, path)
-        create_items(identifier, path)
-        add_item_to_list(identifier, comp_id, command, path)
-    elif command == 'NEW_FILE':
-        print("Got new file")
-        path = client_file.readline().strip().decode()
-        create_file(identifier, path)
-        add_item_to_list(identifier, comp_id, command, path)
-    elif command == 'DELETE':
-        print("Deleting file/folder...")
-        path = client_file.readline().strip().decode()
-        delete_item(identifier, path)
-        add_item_to_list(identifier, comp_id, command, path)
-    elif command == 'MOD_FILE':
-        print("Changing file...")
-        path = client_file.readline().strip().decode()
-        delete_item(identifier, path)
-        add_item_to_list(identifier, comp_id, 'DELETE', path)
-        create_file(identifier, path)
-        add_item_to_list(identifier, comp_id, 'NEW_FILE', path)
-    elif command == 'MOVED':
-        print("Changing name...")
-        src = client_file.readline().strip().decode()
-        dest = client_file.readline().strip().decode()
-        change_name(identifier, src, dest)
-        path = src + ',' + dest
-        print(path)
-        add_item_to_list(identifier, comp_id, command, path)
+    if command == 'NEW_COMP':
+        comp_id = create_comp_id()
+        clients[(identifier, comp_id)] = []
+        client_socket.sendall(comp_id.encode() + b'\n')
+    else:
+        if command == 'SYNC':
+            send_list(identifier, comp_id)
+            return
+        elif command == 'NEW_FOLDER':
+            # print("Got new folder")
+            path = client_file.readline().strip().decode()
+            create_folder(identifier, path)
+            create_items(identifier, path)
+            add_command_to_list(identifier, comp_id, command, path)
+        elif command == 'NEW_FILE':
+            # print("Got new file")
+            path = client_file.readline().strip().decode()
+            create_file(identifier, path)
+            add_command_to_list(identifier, comp_id, command, path)
+        elif command == 'DELETE':
+            # print("Deleting file/folder...")
+            path = client_file.readline().strip().decode()
+            delete_item(identifier, path)
+            add_command_to_list(identifier, comp_id, command, path)
+        elif command == 'MOD_FILE':
+            # print("Changing file...")
+            path = client_file.readline().strip().decode()
+            delete_item(identifier, path)
+            add_command_to_list(identifier, comp_id, 'DELETE', path)
+            create_file(identifier, path)
+            add_command_to_list(identifier, comp_id, 'NEW_FILE', path)
+        elif command == 'MOVED':
+            # print("Changing name...")
+            src = client_file.readline().strip().decode()
+            dest = client_file.readline().strip().decode()
+            change_name(identifier, src, dest)
+            path = src + ',' + dest
+            # print(path)
+            add_command_to_list(identifier, comp_id, command, path)
 
 if __name__ == "__main__":
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -148,28 +146,24 @@ if __name__ == "__main__":
     while True:
         client_socket, client_address = server.accept()
         with client_socket, client_socket.makefile("rb") as client_file:
-            print('Connection from: ', client_address)
+            # print('Connection from: ', client_address)
             identifier = client_file.readline().strip().decode()
-            print("ID is: " + identifier)
+            # print("ID is: " + identifier)
             computer_id = client_file.readline().strip().decode()
-            print("Computer ID is: " + computer_id)
-            if client_exists(identifier):
+            # print("Computer ID is: " + computer_id)
+            if os.path.exists(os.path.join(os.getcwd(), identifier)):
                 command = client_file.readline().strip().decode()
-                if command == 'NEW_COMP':
-                    computer_id = create_comp_id()
-                    clients[(identifier, computer_id)] = []
-                    client_socket.sendall(computer_id.encode() + b'\n')
-                else:
-                    get_updates(identifier, computer_id, command)
+                get_updates(identifier, computer_id, command)
             else:
-                print("Not existing client")
+                # print("Not existing client")
                 computer_id = create_comp_id()
-                print("Created computer ID is: " + computer_id)
+                # print("Created computer ID is: " + computer_id)
                 identifier = create_id()
+                print(identifier)
                 create_new_user_folder(identifier, computer_id)
                 client_socket.sendall(identifier.encode() + b'\n')
                 client_socket.sendall(computer_id.encode() + b'\n')
                 user_dir = client_file.readline().strip().decode()
-                print("User dir is: " + user_dir)
+                # print("User dir is: " + user_dir)
                 create_items(identifier, user_dir)
             client_socket.close()

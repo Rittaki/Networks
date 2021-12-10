@@ -2,7 +2,6 @@ import socket
 import sys
 import time
 import os
-import random
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -39,15 +38,16 @@ class EventHandler(FileSystemEventHandler):
 
     def on_any_event(self, event):
         time.sleep(0.5)
-        if any(str(event.src_path).startswith(s) for s in self.client.ignore_watch):
-            if event.src_path in self.client.ignore_watch:
-                self.client.ignore_watch.remove(event.src_path)
+        if any(str(event.src_path).startswith(start) for start in self.client.avoid_list):
+            if event.src_path in self.client.avoid_list:
+                self.client.avoid_list.remove(event.src_path)
             return
-
         self.client.setup_connection()
+        self.notify(event)
 
+    def notify(self, event):
         if event.event_type == 'created':
-            print(f"{event.src_path} created")
+            # print(f"{event.src_path} created")
             if os.path.isdir(event.src_path):
                 self.client.socket.sendall('NEW_FOLDER'.encode() + b'\n')
                 self.client.socket.sendall(event.src_path.encode() + b'\n')
@@ -55,20 +55,15 @@ class EventHandler(FileSystemEventHandler):
                 self.client.socket.sendall('NEW_FILE'.encode() + b'\n')
                 self.client.socket.sendall(event.src_path.encode() + b'\n')
         elif event.event_type == 'deleted':
-            print(f"{event.src_path} deleted")
             self.client.socket.sendall('DELETE'.encode() + b'\n')
             self.client.socket.sendall(event.src_path.encode() + b'\n')
         elif event.event_type == 'moved':
-            print(f"{event.src_path} moved")
             self.client.socket.sendall('MOVED'.encode() + b'\n')
             self.client.socket.sendall(event.src_path.encode() + b'\n')
             self.client.socket.sendall(event.dest_path.encode() + b'\n')
         elif event.event_type == 'modified':
-            print(f"{event.src_path} modified")
             if os.path.isdir(event.src_path):
                 pass
-                # self.client.socket.sendall('MOD_FOLDER'.encode() + b'\n')
-                # self.client.socket.sendall(event.src_path.encode() + b'\n')
             else:
                 self.client.socket.sendall('MOD_FILE'.encode() + b'\n')
                 self.client.socket.sendall(event.src_path.encode() + b'\n')
@@ -148,7 +143,7 @@ class Client:
         self.id_num = '0'
         self.computer = '0'
         self.timer = time.time()
-        self.ignore_watch = list()
+        self.avoid_list = list()
 
     def run(self):
         try:
@@ -160,9 +155,7 @@ class Client:
         except:
             self.setup_connection()
             self.id_num = self.file.readline().strip().decode()
-            print("ID is: " + self.id_num)
             self.computer = self.file.readline().strip().decode()
-            print("Computer ID is: " + self.computer)
             self.socket.sendall(DIR_PATH.encode() + b'\n')
         self.close_connection()
         self.timer = time.time()
@@ -187,39 +180,33 @@ class Client:
                 paths = self.file.readline().strip().decode()
                 file_name = paths.split(os.path.sep)[-1]
                 path_no_file = os.path.split(paths)[0]
-                # path_no_file = os.path.dirname(os.path.abspath(file_name))
                 create_file(self.id_num, file_name, path_no_file, DIR_PATH)
                 path_no_dir = paths.split(os.path.sep, 1)[1]
-                self.ignore_watch.append(os.path.join(DIR_PATH, path_no_dir))
+                self.avoid_list.append(os.path.join(DIR_PATH, path_no_dir))
             elif command == 'NEW_FOLDER':
                 path = self.file.readline().strip().decode()
                 folder_name = ''
-                # folder_name = path.split(os.path.sep)[-1]
-                # path_no_folder = os.path.dirname(folder_name)
                 create_folder(folder_name, path, DIR_PATH)
                 path_no_dir = path.split(os.path.sep, 1)[1]
-                self.ignore_watch.extend([os.path.join(DIR_PATH, path_no_dir)] * 2)
+                self.avoid_list.extend([os.path.join(DIR_PATH, path_no_dir)] * 2)
             elif command == 'DELETE':
                 path = self.file.readline().strip().decode()
-                # item_name = path.split(os.path.sep)[-1]
                 delete_item(path, DIR_PATH)
                 path_no_dir = path.split(os.path.sep, 1)[1]
-                self.ignore_watch.extend([os.path.join(DIR_PATH, path_no_dir)] * 3)
+                self.avoid_list.extend([os.path.join(DIR_PATH, path_no_dir)] * 3)
             elif command == 'MOVED':
                 path = self.file.readline().strip().decode()
                 src = path.split(',')[0]
-                # src_item = src.split(os.path.sep)[-1]
                 src_path_no_dir = src.split(os.path.sep, 1)[1]
                 dest = path.split(',')[1]
-                # dest_item = dest.split(os.path.sep)[-1]
                 dest_path_no_dir = dest.split(os.path.sep, 1)[1]
                 change_name(DIR_PATH, src, dest)
-                self.ignore_watch.append(os.path.join(DIR_PATH, src_path_no_dir))
-                self.ignore_watch.append(os.path.join(DIR_PATH, dest_path_no_dir))
+                self.avoid_list.append(os.path.join(DIR_PATH, src_path_no_dir))
+                self.avoid_list.append(os.path.join(DIR_PATH, dest_path_no_dir))
         self.timer = time.time()
 
 if __name__ == "__main__":
-    c = Client()
-    c.run()
-    watch = Watcher(DIR_PATH, c)
+    client = Client()
+    client.run()
+    watch = Watcher(DIR_PATH, client)
     watch.run()
